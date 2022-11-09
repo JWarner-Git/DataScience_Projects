@@ -1,0 +1,257 @@
+---
+title: "Warner_Final_Exam"
+author: "Jack Warner"
+date: "May 5, 2022"
+output: html_document
+---
+
+```{r Loading Data}
+#setwd("C:/Users/Jack/Desktop/ITM818/Final_Exam/Data_folder")
+laptop_data<-read.csv("LaptopSalesJanuary2008.csv")
+dim(laptop_data)
+```
+
+```{r Part 1 Question a}
+library(dplyr)
+library(ggplot2)
+Avg_Retail_Price<- laptop_data%>%
+  group_by(StorePostcode)%>%
+  summarise(avg_price=mean(RetailPrice))
+retail_plot<-ggplot(data=Avg_Retail_Price, aes(x = reorder(StorePostcode,(-avg_price)), y = avg_price, fill=StorePostcode))+geom_col( color="Black")+scale_fill_brewer(palette ="Spectral")
+
+retail_plot
+#The highest was N17 6QA and the lowest was W4 3PH
+```
+
+```{r 1b}
+Med_Retail_Price<- laptop_data%>%
+  group_by(StorePostcode)%>%
+  summarise(median_price=median(RetailPrice))
+retail_box=ggplot(data=Med_Retail_Price, mapping=aes(x=reorder(StorePostcode, median_price),y=median_price))+
+stat_boxplot()
+
+retail_box
+```
+
+```{r 1c}
+
+Avg_Price_HDsize<- laptop_data%>%
+  group_by(HDSize)%>%
+  summarise(avg_price_hd=mean(RetailPrice))
+
+HDSize_summary=laptop_data%>%
+group_by(HDSize)%>%
+summarize(count=n(),avgprice=mean(RetailPrice,na.rm=TRUE), sdPrice=sd(RetailPrice,na.rm=TRUE))%>%
+mutate(seprice=sdPrice/sqrt(count))
+
+HDSize_plot<-ggplot(HDSize_summary, aes(x =HDSize,y=avgprice, fill=HDSize))+geom_bar(stat="identity")+geom_errorbar(aes(ymin=avgprice-seprice,ymax=avgprice+seprice, width=8))
+HDSize_plot
+
+```
+
+```{r 1d}
+time_plot<- ggplot(data=laptop_data, aes(x=Date, y=(RetailPrice)))+geom_line()
+time_plot
+#The mean stays relatively constant over time.
+```
+
+```{r Question 2a}
+tayko_data<-read.csv("Tayko.csv")
+barchart1<-ggplot(data=tayko_data, aes(x=Web.order, y=Spending))+ geom_col()
+barchart2<-ggplot(data=tayko_data, aes(x=Gender.male, y=Spending))+ geom_col()
+barchart3<-ggplot(data=tayko_data, aes(x=Address_is_res, y=Spending))+ geom_col()
+barchart4<-ggplot(data=tayko_data, aes(x=US, y=Spending))+ geom_col()
+
+
+
+
+barchart1
+barchart2
+barchart3
+barchart4
+
+```
+
+```{r 2b}
+scatter_freq<-ggplot(data=tayko_data, aes(x=Freq, y=Spending))+geom_point()+geom_smooth(method="lm")
+scatter_lastupdate<-ggplot(data=tayko_data, aes(x=last_update_days_ago, y=Spending))+geom_point()+geom_smooth(method="lm")
+scatter_freq
+scatter_lastupdate
+
+#Yes each seem to have a linear relationship with frequency being positively correlated, and more days since last update being negatively correlated with spending.
+```
+
+```{r 2c1}
+set.seed(1)
+tayko_model_data<-subset(tayko_data, select=c(Spending, Freq, last_update_days_ago, Web.order, Address_is_res, US))
+train=sample(c(TRUE,FALSE),prob=c(0.7,0.3),nrow(tayko_model_data),replace=TRUE)
+test=!train
+
+
+```
+
+```{r c2}
+lm_model<-lm(Spending~Freq+last_update_days_ago+Web.order+Address_is_res+US, data=tayko_data)
+summary(lm_model)
+```
+
+```{r c3}
+#The purchaser most likely to spend a large amount of money is someone who purchases frequently, has a low last update time, orders on the web, and adress is not a residency.
+#US was insignificant so a conclusion will be reserved for the US coefficient.
+```
+
+```{r c4}
+library(leaps)
+model2=regsubsets(Spending~.,tayko_model_data[train,],nvmax=6,method="backward")
+test.mat=model.matrix(Spending~.,tayko_model_data[test,])
+
+summary(model2)
+#US is the first variable dropped.
+val.errors=numeric(5)
+for(i in 1:5){
+coefi=coef(model2,id=i)
+pred=test.mat[,names(coefi)]%*%coefi
+val.errors[i]=mean((tayko_model_data$Spending[test]-pred)^2)
+}
+val.errors
+names(coefi)
+best=which.min(val.errors)
+best
+best_lm<-lm(Spending~Freq+last_update_days_ago+Web.order+Address_is_res, data=tayko_model_data)
+summary(best_lm)
+#Model 4 R^2 of .51 coefficients: Freq, last_update_days_ago, Web.order, Address_is_res.
+```
+
+```{r c5}
+k=10
+set.seed(1)
+folds=sample(1:k,nrow(tayko_model_data),replace=TRUE)
+cv.errors=matrix(0,k,5,dimnames=list(NULL,as.character(1:5)))
+dim(cv.errors)
+for(j in 1:k){
+model3=regsubsets(Spending~.,tayko_model_data[folds!=j,],nvmax=5,method="backward")
+test.mat=model.matrix(Spending~.,data=tayko_model_data[folds==j,])
+for (i in 1:5){
+coefi=coef(model3,id=i)
+pred=test.mat[,names(coefi)]%*%coefi
+cv.errors[j,i]=mean((tayko_model_data$Spending[folds==j]-pred)^2)
+}
+}
+mean.cv.errors=apply(cv.errors,MARGIN=2,mean)
+mean.cv.errors
+plot(mean.cv.errors,type="b")
+best=which.min(mean.cv.errors)
+#Model 4 is the best still with the lowest cv error.
+```
+
+```{r c6}
+best_sum<-summary(best_lm)
+resid_plot<-ggplot(data=tayko_model_data, aes(x=best_sum$residuals))+geom_histogram()
+resid_plot
+plot(best_lm)
+#The residuals differ quite far from the line towards the ends, so it does not follow a normal distribution which reduces predictive accuracy of the model.
+```
+
+
+```{r Question 3a}
+cars<-read.csv("kickedCars.csv")
+dim(cars)
+american_cars<- subset(cars,cars$Nationality=="AMERICAN")
+Prop_size<- american_cars%>%
+  group_by(Size, Make)%>%
+  summarise(count=n())%>%
+  mutate(freq=count/sum(count))
+prop_vans<-subset(Prop_size, Size=="VAN")
+prop_vans
+cars_prop_plot<-ggplot(data=prop_vans, aes(x=Make, y=freq))+geom_col()
+cars_prop_plot
+```
+
+```{r 3b}
+odom_plot<-ggplot(data=cars, aes(x=VehOdo, color=Nationality))+geom_density()
+odom_plot
+#The distribution is fairly similar across nationalities.
+```
+
+```{r 3c}
+bad_buys<- cars%>%
+  group_by(Make, VehYear)%>%
+  summarise(Bad_total=sum(IsBadBuy))
+manu_bad_totals<-bad_buys%>%
+  group_by(Make)%>%
+  summarise(Manu_Bad_Cars=sum(Bad_total))
+manu_bad_totals$Manu_Bad_Cars<-sort(manu_bad_totals$Manu_Bad_Cars, decreasing=TRUE)
+
+top3<-manu_bad_totals[1:3,]
+top3
+
+
+```
+
+```{r 3d}
+price_by_year_avg<-cars%>%
+  group_by(MMRCurrentRetailAveragePrice, VehYear)%>%
+  summarise(avg_price=mean(MMRCurrentRetailAveragePrice))
+price_by_year_clean<-cars%>%
+  group_by(MMRCurrentRetailCleanPrice, VehYear)%>%
+  summarise(avg_price_clean=mean(MMRCurrentRetailCleanPrice))
+
+
+Retail_avg_plot<-ggplot(data=price_by_year_avg, aes(x=VehYear, y=avg_price))+geom_col()
+Retail_clean_plot<-ggplot(data=price_by_year_clean, aes(x=VehYear, y=avg_price_clean))+geom_col()
+Retail_avg_plot
+Retail_clean_plot
+    
+```
+
+```{r 3e}
+bad_builds<-subset(manu_bad_totals, Manu_Bad_Cars>500)
+bad_builds
+bad_builds_full<-subset(cars, Make=="ACURA"|Make=="BUICK"|Make=="CADILLAC"|Make=="CHRYSLER"|Make=="CHEVROLET")
+Prop_builds<- bad_builds_full%>%
+  group_by(Make, VehYear)%>%
+  summarise(count=n())%>%
+  mutate(freq=count/sum(count))
+builds_plot<-ggplot(data=Prop_builds, aes(x=VehYear, y=freq, color=Make))+geom_line()
+builds_plot
+
+```
+
+```{r 3f}
+top3_am<-cars[cars$TopThreeAmericanName!="OTHER",]
+ggplot(data=top3_am, aes(x=VehOdo,y=MMRAcquisitionAuctionAveragePrice))+
+  geom_point(size=.3)+stat_smooth(aes(group=IsBadBuy),method="lm", se=TRUE)
+
+```
+
+```{r 3g}
+BadBuy_df<-subset(cars, select=c(IsBadBuy, VehicleAge, TopThreeAmericanName, WheelType,
+                                 VehOdo, Size, VehBCost, IsOnlineSale, WarrantyCost))
+
+train.index=sample(.7*nrow(BadBuy_df),.3*nrow(BadBuy_df),replace=FALSE)
+train=BadBuy_df[train.index,]
+valid=BadBuy_df[-train.index,]
+
+BadBuy_model<-glm(IsBadBuy~VehicleAge +(VehicleAge^2)+TopThreeAmericanName+WheelType+VehOdo+Size+VehBCost+IsOnlineSale+WarrantyCost, family="binomial", data=train)
+
+valid$prob=predict(BadBuy_model,valid,type="response")
+valid$pred=ifelse(valid$prob>0.5,1,0)
+
+
+confusion=table(actual=valid$IsBadBuy,predicted=valid$pred)
+TP=confusion[2,2]
+FN=confusion[2,1]
+FP=confusion[1,2]
+TN=confusion[1,1]
+accuracy=(TP+TN)/nrow(valid)
+precision=TP/(TP+FP)
+recall=TP/(TP+FN)
+error=1-accuracy
+c(accuracy,precision,recall,error)
+
+#With the model predicing at 89.4% accuracy, it is slightly more accurate than you would achieve from randomly sampling the data.
+
+```
+
+
+
